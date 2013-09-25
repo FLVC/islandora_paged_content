@@ -90,15 +90,28 @@ EOQ;
  *   'lr' or right to left 'rl'.
  */
 function islandora_paged_content_get_page_progression(AbstractObject $object) {
-  $query = 'select $page_progression from <#ri> where <info:fedora/';
-  $query .= $object->id;
-  $query .= '><fedora-rels-ext:hasPageProgression> $page_progression';
+  //$query = 'select $page_progression from <#ri> where <info:fedora/';
+  //$query .= $object->id;
+  //$query .= '><fedora-rels-ext:hasPageProgression> $page_progression';
 
-  $results = $object->repository->ri->query($query);
+  //$results = $object->repository->ri->query($query);
+
+  $query = <<<EOQ
+PREFIX islandora-rels-ext: <http://islandora.ca/ontology/relsext#>
+SELECT ?page_progression
+FROM <#ri>
+WHERE {
+  <info:fedora/{$object->id}> islandora-rels-ext:hasPageProgression ?page_progression .
+}
+EOQ;
+
+  $results = $object->repository->ri->sparqlQuery($query);
+
   if (count($results) > 0) {
     return $results[0]['page_progression']['value'];
   }
-  return 'rl';
+  //return 'rl';
+  return 'lr';
 }
 
 /**
