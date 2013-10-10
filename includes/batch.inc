@@ -74,27 +74,31 @@ function islandora_paged_content_end_batch_operation(&$context, $count = 1, $mes
 function islandora_paged_content_batch_finished($success, $results, $operations) {
   if ($success) {
     // Delete any lingering files.
-    foreach ($results['files'] as $file) {
-      if (file_exists($file)) {
-        file_unmanaged_delete($file);
+    if (isset($results['files'])) {
+      foreach ($results['files'] as $file) {
+        if (file_exists($file)) {
+          file_unmanaged_delete($file);
+        }
       }
     }
     // Build generic place holders for the message.
-    $total = count($results['successful']);
-    $successful = count(array_filter($results['successful']));
-    $failed = $total - $successful;
-    $place_holders = array(
-      '@successful' => $successful,
-      '@failed' => $failed,
-      '@total' => $total,
-    );
-    // Display all messages/errors/warnings.
-    $messages = array_filter($results['messages']);
-    foreach ($messages as $message) {
-      $vars = isset($message[1]) ? array_merge($message[1], $place_holders) : $place_holders;
-      $status = isset($message[2]) ? $message[2] : 'status';
-      $message = format_string($message[0], $vars);
-      drupal_set_message(check_plain($message), $status);
+    if (isset($results['successful'])) {
+      $total = count($results['successful']);
+      $successful = count(array_filter($results['successful']));
+      $failed = $total - $successful;
+      $place_holders = array(
+        '@successful' => $successful,
+        '@failed' => $failed,
+        '@total' => $total,
+      );
+      // Display all messages/errors/warnings.
+      $messages = array_filter($results['messages']);
+      foreach ($messages as $message) {
+        $vars = isset($message[1]) ? array_merge($message[1], $place_holders) : $place_holders;
+        $status = isset($message[2]) ? $message[2] : 'status';
+        $message = format_string($message[0], $vars);
+        drupal_set_message(check_plain($message), $status);
+      }
     }
   }
   else {
@@ -260,7 +264,7 @@ function islandora_paged_content_create_images_batch(AbstractObject $paged_conte
   return array(
     'operations' => array(
       array('islandora_paged_content_create_images_batch_operation', array(
-          $paged_content, $pages)),
+          $paged_content->id, $pages)),
     ),
     'finished' => 'islandora_paged_content_batch_finished',
     'title' => t('Creating Images for @label ...', array('@label' => $paged_content->label)),
@@ -274,15 +278,16 @@ function islandora_paged_content_create_images_batch(AbstractObject $paged_conte
 /**
  * Batch operation for creating the TN, JPG, JP2 datastreams.
  *
- * @param AbstractObject $paged_content
+ * @param AbstractObject $paged_content_id
  *   The book the pages belong to.
  * @param array $pages
  *   All the pages to create images for.
  * @param array $context
  *   The context of this batch operation.
  */
-function islandora_paged_content_create_images_batch_operation(AbstractObject $paged_content, array $pages, &$context) {
+function islandora_paged_content_create_images_batch_operation($paged_content_id, array $pages, &$context) {
   module_load_include('inc', 'islandora_paged_content', 'includes/utilities');
+  $paged_content = islandora_object_load($paged_content_id);
   $page = islandora_paged_content_start_batch_operation($pages, $context);
   if ($page) {
     $page = islandora_object_load($page);
@@ -314,7 +319,7 @@ function islandora_paged_content_sequence_pages_batch(AbstractObject $paged_cont
   return array(
     'operations' => array(
       array('islandora_paged_content_sequence_pages_batch_operation', array(
-          $paged_content, $pages)),
+          $paged_content->id, $pages)),
     ),
     'finished' => 'islandora_paged_content_batch_finished',
     'title' => t("Sequencing @label's pages ...", array('@label' => $paged_content->label)),
@@ -328,15 +333,16 @@ function islandora_paged_content_sequence_pages_batch(AbstractObject $paged_cont
 /**
  * Changes the ordering of the pages.
  *
- * @param AbstractObject $paged_content
+ * @param AbstractObject $paged_content_id
  *   The paged_content the pages belong to.
  * @param array $pages
  *   All the pages in the order they should be in.
  * @param array $context
  *   The context of this batch operation.
  */
-function islandora_paged_content_sequence_pages_batch_operation(AbstractObject $paged_content, array $pages, &$context) {
+function islandora_paged_content_sequence_pages_batch_operation($paged_content_id, array $pages, &$context) {
   module_load_include('inc', 'islandora_paged_content', 'includes/utilities');
+  $paged_content = islandora_object_load($paged_content_id);
   $page = islandora_paged_content_start_batch_operation($pages, $context);
   if ($page) {
     $page = islandora_object_load($page);
@@ -369,7 +375,7 @@ function islandora_paged_content_delete_pages_batch(AbstractObject $paged_conten
   return array(
     'operations' => array(
       array('islandora_paged_content_delete_pages_batch_operation', array(
-          $paged_content, $pages)),
+          $paged_content->id, $pages)),
     ),
     'finished' => 'islandora_paged_content_batch_finished',
     'title' => t('Deleting page(s) from @label ...', array('@label' => $paged_content->label)),
@@ -383,15 +389,16 @@ function islandora_paged_content_delete_pages_batch(AbstractObject $paged_conten
 /**
  * Batch operation for deleting a page object.
  *
- * @param AbstractObject $paged_content
+ * @param AbstractObject $paged_content_id
  *   The paged_content the pages belong to.
  * @param array $pages
  *   All the pages to delete.
  * @param array $context
  *   The context of this batch operation.
  */
-function islandora_paged_content_delete_pages_batch_operation(AbstractObject $paged_content, array $pages, &$context) {
+function islandora_paged_content_delete_pages_batch_operation($paged_content_id, array $pages, &$context) {
   module_load_include('inc', 'islandora_paged_content', 'includes/utilities');
+  $paged_content = islandora_object_load($paged_content_id);
   $page = islandora_paged_content_start_batch_operation($pages, $context);
   if ($page) {
     $page = islandora_object_load($page);
@@ -401,4 +408,15 @@ function islandora_paged_content_delete_pages_batch_operation(AbstractObject $pa
       islandora_paged_content_update_paged_content_thumbnail($paged_content);
     }
   }
+}
+
+/**
+ * Deletes the parent issue or book object.
+ *
+ * @param string $pid
+ *   The pid of the issue or book object.
+ */
+function islandora_paged_content_delete_parent_object_operation($pid) {
+  $object = islandora_object_load($pid);
+  islandora_delete_object($object);
 }
