@@ -734,6 +734,7 @@ function islandora_paged_content_page_derivatives(AbstractObject $object, $conte
     $derivatives[] = array(
       'source_dsid' => 'OBJ',
       'destination_dsid' => 'PDF',
+      'weight' => 0,
       'function' => array('islandora_paged_content_derivatives_pdf'),
       'file' => "$paged_content_module_path/includes/derivatives.inc",
     );
@@ -743,12 +744,14 @@ function islandora_paged_content_page_derivatives(AbstractObject $object, $conte
     $derivatives[] = array(
       'source_dsid' => 'OBJ',
       'destination_dsid' => 'OCR',
+      'weight' => 1,
       'function' => array('islandora_ocr_derive_ocr'),
       'file' => "$ocr_module_path/includes/derivatives.inc",
     );
     $derivatives[] = array(
       'source_dsid' => 'OBJ',
       'destination_dsid' => 'HOCR',
+      'weight' => 2,
       'function' => array('islandora_ocr_derive_hocr'),
       'file' => "$ocr_module_path/includes/derivatives.inc",
     );
@@ -757,30 +760,35 @@ function islandora_paged_content_page_derivatives(AbstractObject $object, $conte
     $derivatives[] = array(
       'source_dsid' => 'OBJ',
       'destination_dsid' => 'JP2',
+      'weight' => 6,
       'function' => array('islandora_large_image_create_jp2_derivative'),
       'file' => "$large_image_module_path/includes/derivatives.inc",
     );
     $derivatives[] = array(
       'source_dsid' => 'JP2',
       'destination_dsid' => NULL,
+      'weight' => 7,
       'function' => array('islandora_paged_content_add_dimensions_relationships'),
       'file' => "$paged_content_module_path/includes/utilities.inc",
     );
     $derivatives[] = array(
       'source_dsid' => 'TN',
       'destination_dsid' => NULL,
+      'weight' => 3,
       'function' => array('islandora_paged_content_derive_thumbnail_on_parent'),
       'file' => "$paged_content_module_path/includes/derivatives.inc",
     );
     $derivatives[] = array(
       'source_dsid' => 'OBJ',
       'destination_dsid' => 'TN',
+      'weight' => 4,
       'function' => array('islandora_large_image_create_tn_derivative'),
       'file' => "$large_image_module_path/includes/derivatives.inc",
     );
     $derivatives[] = array(
       'source_dsid' => 'OBJ',
       'destination_dsid' => 'JPG',
+      'weight' => 5,
       'function' => array('islandora_large_image_create_jpg_derivative'),
       'file' => "$large_image_module_path/includes/derivatives.inc",
     );
