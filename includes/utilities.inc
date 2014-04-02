@@ -359,7 +359,8 @@ function islandora_paged_content_can_create_pdf() {
  *   TRUE if it is possible, FALSE otherwise.
  */
 function islandora_paged_content_can_combine_pdf() {
-  $gs = variable_get('islandora_book_gs', '/usr/bin/gs');
+  //$gs = variable_get('islandora_book_gs', '/usr/bin/gs');
+  $gs = variable_get('islandora_paged_content_gs', '/usr/bin/gs');
   return is_executable($gs);
 }
 
@@ -395,7 +396,8 @@ function islandora_paged_content_pdf_append($file, array $files) {
  *   TRUE on success, FALSE otherwise.
  */
 function islandora_paged_content_pdf_combine(array $files, $out) {
-  $gs = variable_get('islandora_book_gs', '/usr/bin/gs');
+  //$gs = variable_get('islandora_book_gs', '/usr/bin/gs');
+  $gs = variable_get('islandora_paged_content_gs', '/usr/bin/gs');
   $files = implode(' ', $files);
   $command = "{$gs} -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile={$out} {$files}";
   $output = array(); $ret = 0;
