@@ -30,7 +30,7 @@ function islandora_paged_content_manage_pages_menu(AbstractObject $object) {
   module_load_include('inc', 'islandora', 'includes/breadcrumb');
   drupal_set_breadcrumb(islandora_get_breadcrumbs($object));
   drupal_set_title($object->label);
-  return array(
+  $manage_tabs = array(
     'manage_pages' => array(
       '#type' => 'vertical_tabs',
       'pdf' => array(
@@ -58,6 +58,14 @@ function islandora_paged_content_manage_pages_menu(AbstractObject $object) {
         '#collapsible' => TRUE,
         '#collapsed' => TRUE,
       ),
+      'page_progression' => array(
+        '#access' => user_access(ISLANDORA_METADATA_EDIT),
+        '#title' => t('Page Progression'),
+        '#type' => 'fieldset',
+        'form' => drupal_get_form('islandora_paged_content_manage_page_progression_form', $object),
+        '#collapsible' => TRUE,
+        '#collapsed' => TRUE,
+      ),
       'sequence' => array(
         '#access' => user_access(ISLANDORA_METADATA_EDIT),
         '#title' => t('Reorder Pages'),
@@ -76,6 +84,9 @@ function islandora_paged_content_manage_pages_menu(AbstractObject $object) {
       ),
     ),
   );
+  $context = array('object' => $object);
+  drupal_alter('islandora_paged_content_pages_management_tabs', $manage_tabs, $context);
+  return $manage_tabs;
 }
 
 /**
@@ -632,9 +643,11 @@ function islandora_paged_content_zipped_upload_form_submit(array $form, array &$
   $tuque = new IslandoraTuque();
   $repository = $tuque->repository;
   $pid = $form_state['values']['pid'];
+  $form_state['redirect'] = "islandora/object/$pid";
   $namespace = substr($pid, 0, strpos($pid, ":"));
   $tmp_dir = uniqid();
   $object = islandora_object_load($pid);
+  $book_label = $object->label;
   if (!$object) {
     drupal_set_message(t("This object does not exist in this repository"), 'warning');
     return;
@@ -716,13 +729,14 @@ function islandora_paged_content_zipped_upload_form_submit(array $form, array &$
       'namespace' => $namespace,
       'language' => $form_state['values']['language'],
       'model' => $form_state['values']['model'],
+      'file_count' => $file_count,
+      'book_label' => $book_label,
     );
-    $offset = count($files_to_add);
     if (isset($pages_to_renumber[0])) {
       foreach ($pages_to_renumber as $page) {
         $batch['operations'][] = array(
           'islandora_paged_content_content_insert_sequence_gap',
-          array($page, $offset),
+          array($page, $file_count),
         );
       }
     }
@@ -738,7 +752,7 @@ function islandora_paged_content_zipped_upload_form_submit(array $form, array &$
     batch_set($batch);
   }
   else {
-    drupal_set_message(t('No files were found to add, in the provided ZIP file.'), 'warning');
+    drupal_set_message(t('No files were found to add in the provided ZIP file.'), 'warning');
   }
 }
 
@@ -754,9 +768,10 @@ function islandora_paged_content_zipped_upload_form_submit(array $form, array &$
  *   the temporary directory used to store  pages.
  */
 function islandora_paged_content_add_pages($repository, $config, $pages_directory, &$context) {
-  module_load_include('inc', 'islandora', 'includes/IslandoraTuque');
   module_load_include('inc', 'islandora_paged_content', 'includes/utilities');
   $context['results']['pages_directory'] = $pages_directory;
+  $context['results']['file_count'] = $config['file_count'];
+  $context['results']['book_label'] = $config['book_label'];
 
   // Create object.
   $object = $repository->constructObject($config['namespace']);
@@ -813,4 +828,64 @@ function islandora_paged_content_insert_sequence_gap($page_to_reindex, $offset) 
  */
 function islandora_paged_content_zipped_upload_ingest_finished($success, $results, $operations) {
   file_unmanaged_delete_recursive($results['pages_directory']);
+  if ($success) {
+    drupal_set_message(t('Successfully added @pages pages to @label.', array(
+      '@pages' => $results['file_count'],
+      '@label' => $results['book_label'],
+    )));
+  }
+  else {
+    drupal_set_message(t('Problems were encountered while trying to add pages to @label. Please contact an administrator or check the logs for details.', array(
+      '@label' => $results['book_label'],
+    )));
+  }
+}
+
+/**
+ * Sets the page progression for a paged content.
+ *
+ * @param array $form
+ *   The Drupal form.
+ * @param array $form_state
+ *   The Drupal form state.
+ * @param AbstractObject $object
+ *   The object to fetch the pages from.
+ *
+ * @return array
+ *   The Drupal form.
+ */
+function islandora_paged_content_manage_page_progression_form(array $form, array &$form_state, AbstractObject $object) {
+  module_load_include('inc', 'islandora_paged_content', 'includes/utilities');
+  $page_progression = islandora_paged_content_get_page_progression($object);
+  $form_state['pid'] = $object->id;
+  return array(
+    'page_progression' => array(
+      '#type' => 'radios',
+      '#title' => t('Page Progression'),
+      '#options' => array(
+        'lr' => t('Left-to-Right'),
+        'rl' => t('Right-to-Left'),
+      ),
+      '#default_value' => $page_progression,
+    ),
+    'submit' => array(
+      '#type' => 'submit',
+      '#value' => t('Set page progression'),
+    ),
+  );
+}
+
+/**
+ * Submit handler to set page progression for paged content.
+ *
+ * @param array $form
+ *   An array representing a form within Drupal.
+ * @param array $form_state
+ *   An array containing the Drupal form state.
+ */
+function islandora_paged_content_manage_page_progression_form_submit($form, &$form_state) {
+  module_load_include('inc', 'islandora_paged_content', 'includes/utilities');
+  $object = islandora_object_load($form_state['pid']);
+  islandora_paged_content_set_page_progression($object, $form_state['values']['page_progression']);
+  drupal_set_message(t('Page progression updated.'));
 }
