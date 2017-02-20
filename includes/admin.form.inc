@@ -88,6 +88,12 @@ function islandora_paged_content_admin_settings_form(array $form, array &$form_s
           'event' => 'change',
         ),
       ),
+      'islandora_paged_content_pdftotext_use_raw' => array(
+        '#type' => 'checkbox',
+        '#title' => t('Allow Extraction of Raw Text'),
+        '#description' => t('This will pass the -raw parameter off to pdftotext when extracting text. By default, pdftotext extracts text in natural reading order. In edge case documents, where PDF creation tools have made blocks in errorneous order, text extraction will yield unexpected results. As such, this parameter will pull out text in the order that the PDF creation tool wrote it (layout ignored). This is not a valid default option to have due to that PDF creation tools are not constrained to writing blocks in the order they appear and it is up to the PDF reader to render them correctly.'),
+        '#default_value' => variable_get('islandora_paged_content_pdftotext_use_raw', FALSE),
+      ),
     ),
     'islandora_paged_content_djatoka_url' => array(
       '#type' => 'textfield',
@@ -110,12 +116,59 @@ function islandora_paged_content_admin_settings_form(array $form, array &$form_s
       '#description' => t('The page or sequence number of each page or image.'),
       '#default_value' => $get_default_value('islandora_paged_content_sequence_number_field', 'RELS_EXT_isSequenceNumber_literal_ms'),
     ),
-
+    'islandora_paged_content_use_solr_for_dimensions' => array(
+      '#access' => $solr_enabled,
+      '#type' => 'checkbox',
+      '#title' => t('Use Solr to derive pages and sequence numbers'),
+      '#default_value' => $get_default_value('islandora_paged_content_use_solr_for_dimensions', FALSE),
+    ),
+    'islandora_paged_content_solr_width_field' => array(
+      '#access' => $solr_enabled,
+      '#type' => 'textfield',
+      '#title' => t('Solr width dimension field'),
+      '#default_value' => $get_default_value('islandora_paged_content_solr_width_field', 'RELS_INT_width_literal_s'),
+      '#states' => array(
+        'visible' => array(
+          ':input[name="islandora_paged_content_use_solr_for_dimensions"]' => array('checked' => TRUE),
+        ),
+      ),
+    ),
+    'islandora_paged_content_solr_height_field' => array(
+      '#access' => $solr_enabled,
+      '#type' => 'textfield',
+      '#title' => t('Solr height dimension field'),
+      '#default_value' => $get_default_value('islandora_paged_content_solr_height_field', 'RELS_INT_height_literal_s'),
+      '#states' => array(
+        'visible' => array(
+          ':input[name="islandora_paged_content_use_solr_for_dimensions"]' => array('checked' => TRUE),
+        ),
+      ),
+    ),
     'islandora_paged_content_page_label' => array(
       '#type' => 'checkbox',
       '#title' => t('Set page labels to sequence numbers'),
       '#description' => t('The sequence number of each page will be used to set its label.'),
       '#default_value' => $get_default_value('islandora_paged_content_page_label', FALSE),
+    ),
+    'islandora_paged_content_solr_results_alter' => array(
+      '#type' => 'fieldset',
+      '#title' => t('Solr Results Altering'),
+      'islandora_paged_content_hide_pages_solr' => array(
+        '#type' => 'checkbox',
+        '#title' => t('Hide Page Objects From Search Results'),
+        '#default_value' => $get_default_value('islandora_paged_content_hide_pages_solr', FALSE),
+      ),
+      'islandora_paged_content_solr_fq' => array(
+        '#type' => 'textfield',
+        '#title' => t('Paged Content Solr Filter Query'),
+        '#description' => t('Enter a string representing a query to use to filter pages from Solr results.'),
+        '#default_value' => $get_default_value('islandora_paged_content_solr_fq', '-RELS_EXT_isPageOf_uri_ms:[* TO *]'),
+        '#states' => array(
+          'invisible' => array(
+            ':input[name="islandora_paged_content_hide_pages_solr"]' => array('checked' => FALSE),
+          ),
+        ),
+      ),
     ),
   );
   return system_settings_form($form);

@@ -21,23 +21,59 @@
  *   number. Each an array containing info.
  */
 function islandora_paged_content_get_pages(AbstractObject $object) {
-  $query = <<<EOQ
-PREFIX islandora-rels-ext: <http://islandora.ca/ontology/relsext#>
-SELECT ?pid ?page ?label ?width ?height
-FROM <#ri>
-WHERE {
-  ?pid <fedora-rels-ext:isMemberOf> <info:fedora/{$object->id}> ;
-       <fedora-model:label> ?label ;
-       islandora-rels-ext:isSequenceNumber ?page ;
-       <fedora-model:state> <fedora-model:Active> .
-  OPTIONAL {
-    ?pid <fedora-view:disseminates> ?dss .
-    ?dss <fedora-view:disseminationType> <info:fedora/*/JP2> ;
-         islandora-rels-ext:width ?width ;
-         islandora-rels-ext:height ?height .
- }
+  $pages = array();
+  // Try to use Solr first if enabled, or default to the RI if the Solr query
+  // fails for some reason.
+  if (module_exists('islandora_solr') && variable_get('islandora_paged_content_use_solr_for_dimensions', FALSE)) {
+    $pages = islandora_paged_content_get_pages_solr($object);
+    if (empty($pages)) {
+      $pages = islandora_paged_content_get_pages_ri($object);
+    }
+  }
+  else {
+    $pages = islandora_paged_content_get_pages_ri($object);
+  }
+  // Sort the pages into their proper order.
+  $sort = function($a, $b) {
+    $a = (is_array($a) && isset($a['page'])) ? $a['page'] : 0;
+    $b = (is_array($b) && isset($b['page'])) ? $b['page'] : 0;
+    if ($a == $b) {
+      return 0;
+    }
+    return ($a < $b) ? -1 : 1;
+  };
+  uasort($pages, $sort);
+  return $pages;
 }
-ORDER BY ?page
+
+/**
+ * Helper function to retrieve the pages and dimensions from the RI.
+ *
+ * @param AbstractObject $object
+ *   An AbstractObject representing a book.
+ *
+ * @return array
+ *   All the pages in the given paged content object. Ordered by sequence
+ *   number. Each an array containing info.
+ */
+function islandora_paged_content_get_pages_ri(AbstractObject $object) {
+  $query = <<<EOQ
+  PREFIX islandora-rels-ext: <http://islandora.ca/ontology/relsext#>
+  SELECT ?pid ?page ?label ?width ?height
+  FROM <#ri>
+  WHERE {
+    ?pid <fedora-rels-ext:isMemberOf> <info:fedora/{$object->id}> ;
+         <fedora-model:label> ?label ;
+         islandora-rels-ext:isSequenceNumber ?page ;
+         <fedora-model:state> <fedora-model:Active> .
+    OPTIONAL {
+      ?pid <fedora-view:disseminates> ?dss .
+      ?dss <fedora-view:disseminationType> <info:fedora/*/JP2> ;
+           islandora-rels-ext:width ?width ;
+           islandora-rels-ext:height ?height .
+   }
+  }
+  ORDER BY ?page
 EOQ;
 
   $results = $object->repository->ri->sparqlQuery($query);
@@ -63,18 +99,55 @@ EOQ;
   // If we have some pages, combine our remapped results to produce an array
   // mapping pids to the values for that pid.
   $pages = count($pids) ? array_combine($pids, $pages) : array();
+  return $pages;
+}
 
-  // Sort the pages into their proper order.
-  $sort = function($a, $b) {
-    $a = (is_array($a) && isset($a['page'])) ? $a['page'] : 0;
-    $b = (is_array($b) && isset($b['page'])) ? $b['page'] : 0;
-    if ($a == $b) {
-      return 0;
+/**
+ * Helper function to retrieve the pages and dimensions from Solr.
+ *
+ * @param AbstractObject $object
+ *   An AbstractObject representing a book.
+ *
+ * @return array
+ *   All the pages in the given paged content object. Ordered by sequence
+ *   number. Each an array containing info.
+ */
+function islandora_paged_content_get_pages_solr(AbstractObject $object) {
+  $pages = array();
+  $qp = new islandoraSolrQueryProcessor();
+  $qp->buildQuery(format_string('@field:"@pid"', array(
+      '@field' => variable_get('islandora_solr_member_of_field', 'RELS_EXT_isMemberOf_uri_ms'),
+      '@pid' => "info:fedora/{$object->id}")
+  ));
+  $label_field = variable_get('islandora_solr_object_label_field', 'fgs_label_s');
+  $sequence_field = variable_get('islandora_paged_content_sequence_number_field', 'RELS_EXT_isSequenceNumber_literal_ms');
+  $height_field = variable_get('islandora_paged_content_solr_height_field', 'RELS_INT_height_literal_s');
+  $width_field = variable_get('islandora_paged_content_solr_width_field', 'RELS_INT_width_literal_s');
+  $qp->solrParams['fl'] = implode(', ', array(
+    'PID',
+    $label_field,
+    $sequence_field,
+    $height_field,
+    $width_field,
+  ));
+  $qp->solrStart = 0;
+  $qp->solrLimit = 100000;
+  $qp->executeQuery(FALSE);
+  if ($qp->islandoraSolrResult['response']['numFound'] > 0) {
+    foreach ($qp->islandoraSolrResult['response']['objects'] as $page) {
+      $pages[$page['PID']] = array(
+        'pid' => $page['PID'],
+        'page' => (string) reset($page['solr_doc'][$sequence_field]),
+        'label' => $page['object_label'],
+      );
+      if (isset($page['solr_doc'][$width_field])) {
+        $pages[$page['PID']]['width'] = $page['solr_doc'][$width_field];
+      }
+      if (isset($page['solr_doc'][$height_field])) {
+        $pages[$page['PID']]['height'] = $page['solr_doc'][$height_field];
+      }
     }
-    return ($a < $b) ? -1 : 1;
-  };
-  uasort($pages, $sort);
-
+  }
   return $pages;
 }
 
@@ -426,6 +499,51 @@ function islandora_paged_content_pdf_combine(array $files, $out) {
 }
 
 /**
+ * Appends a series of OCR files to a consolidated OCR file.
+ *
+ * @param string $consolidated_ocr
+ *   The consolidated OCR path.
+ * @param array $files
+ *   The files to be appended to the OCR.
+ *
+ * @return bool
+ *   TRUE on success, FALSE on failure.
+ */
+function islandora_paged_content_ocr_append($consolidated_ocr, array $files) {
+  $temp_file = drupal_tempnam("temporary://", "$consolidated_ocr.temp.txt");
+  copy($consolidated_ocr, $temp_file);
+  array_unshift($files, $temp_file);
+  $ret = islandora_paged_content_ocr_combine($files, $consolidated_ocr);
+  file_unmanaged_delete($temp_file);
+  return $ret;
+}
+
+/**
+ * Combines the given OCR files into one output file.
+ *
+ * @param array $files
+ *   The OCR files to be combined, in order.
+ * @param string $out
+ *   The absolute path to the consolidated OCR file.
+ *
+ * @return bool
+ *   TRUE on success, FALSE on fail.
+ */
+function islandora_paged_content_ocr_combine(array $files, $out) {
+  $success = TRUE;
+  foreach ($files as $file) {
+    $ocr = file_get_contents($file);
+    if ($ocr == FALSE) {
+      $success = FALSE;
+    }
+    else {
+      $success = file_put_contents($out, $ocr, FILE_APPEND) == FALSE ? FALSE : $success;
+    }
+  }
+  return $success;
+}
+
+/**
  * Creates a PDF derivative for the given Page object.
  *
  * @param AbstractObject $object
@@ -598,7 +716,7 @@ function islandora_paged_content_update_paged_content_thumbnail(AbstractObject $
 }
 
 /**
- * Creates and adds the OCR, HOCR datastreams.
+ * Creates OCR and HOCR derivatives and ingests them.
  *
  * @param AbstractObject $object
  *   The page object that the derivatives will be generated for.
@@ -606,30 +724,70 @@ function islandora_paged_content_update_paged_content_thumbnail(AbstractObject $
  *   The options for tesseract/gimp.
  *
  * @return bool
- *   TRUE on success, FALSE otherwise.
+ *   TRUE on success or FALSE on failure.
  */
 function islandora_paged_content_page_derive_ocr_datastreams(AbstractObject $object, array $options = NULL) {
-  module_load_include('inc', 'islandora_ocr', 'includes/utilities');
-  $rels_ext = $object->relationships;
-  $options = isset($options) ? $options : array(
-    'language' => islandora_paged_content_get_relationship($rels_ext,
-      ISLANDORA_RELS_EXT_URI,
-      'hasLanguage',
-      'eng'),
-  );
+  $options = islandora_paged_content_apply_language_relationship_to_options($object, $options);
 
   module_load_include('inc', 'islandora_ocr', 'includes/derivatives');
   $ret = islandora_ocr_derive_datastreams($object['OBJ'], $options);
 
-  // Check the depth of the image, to see if it can be processed with Tesseract.
-  // If it can not, reduce the depth and grayscale it...
-  $language = $options['language'];
-  islandora_paged_content_set_relationship($rels_ext,
+  islandora_paged_content_set_relationship($object->relationships,
     ISLANDORA_RELS_EXT_URI,
     'hasLanguage',
-    $language,
+    $options['language'],
     TRUE);
   return $ret;
+}
+
+/**
+ * Creates OCR and HOCR derivatives and returns references to them.
+ *
+ * @param AbstractObject $object
+ *   The page object that the derivatives will be generated for.
+ * @param array $options
+ *   The options for tesseract/gimp.
+ *
+ * @return array
+ *   An associative array containing 'OCR' and 'HOCR', each of which either
+ *   contain the path to the generated output from tesseract, or FALSE on
+ *   failure.
+ */
+function islandora_paged_content_page_generate_ocr_datastreams(AbstractObject $object, array $options = NULL) {
+  $options = islandora_paged_content_apply_language_relationship_to_options($object, $options);
+
+  module_load_include('inc', 'islandora_ocr', 'includes/derivatives');
+  $ret = islandora_ocr_generate_derivatives($object['OBJ'], $options);
+
+  islandora_paged_content_set_relationship($object->relationships,
+    ISLANDORA_RELS_EXT_URI,
+    'hasLanguage',
+    $options['language'],
+    TRUE);
+  return $ret;
+}
+
+/**
+ * Helper function to create generation options from a language relationship.
+ *
+ * @param AbstractObject $object
+ *   The object to check relationships for.
+ * @param array|null $options
+ *   The current tesseract/gimp generation options.
+ *
+ * @return array
+ *   An array that at least contains a 'language' option matching the object's
+ *   hasLanguage relationship, or 'eng' if there wasn't one.
+ */
+function islandora_paged_content_apply_language_relationship_to_options(AbstractObject $object, array $options = NULL) {
+  $options = (array) $options;
+  if (!isset($options['language'])) {
+    $options['language'] = islandora_paged_content_get_relationship($object->relationships,
+      ISLANDORA_RELS_EXT_URI,
+      'hasLanguage',
+      'eng');
+  }
+  return $options;
 }
 
 /**
@@ -763,6 +921,19 @@ function islandora_paged_content_paged_object_derivatives($context) {
           'source_dsid' => NULL,
           'destination_dsid' => 'PDF',
           'function' => array('islandora_paged_content_aggregate_pdf_derivative'),
+          'file' => "$paged_content_module_path/includes/derivatives.inc",
+        ),
+      )
+    );
+  }
+  if ($derive['ocr']) {
+    $derivatives = array_merge(
+      $derivatives,
+      array(
+        array(
+          'source_dsid' => NULL,
+          'destination_dsid' => 'OCR',
+          'function' => array('islandora_paged_content_aggregate_ocr_derivative'),
           'file' => "$paged_content_module_path/includes/derivatives.inc",
         ),
       )
@@ -908,21 +1079,22 @@ function islandora_paged_content_pdfinfo_availability() {
  *   The page number to extract it will be used as the first and last page
  *   value. Note that pdftotext won't complain about using an offset greater
  *   than the number of allotted pages of a PDF.
- *
  * @param bool $layout
  *   Whether we are retaining layout of the PDF or not.
+ * @param bool $raw_text
+ *   Whether to extract the raw text from the PDF or not.
  *
  * @return bool|string
  *   FALSE if it fails, the URI of the text file otherwise.
  */
-function islandora_paged_content_extract_text_from_pdf($uri, $offset, $layout = TRUE) {
+function islandora_paged_content_extract_text_from_pdf($uri, $offset, $layout = TRUE, $raw_text = FALSE) {
   $file_path = drupal_realpath($uri);
   // PDF doesn't exist or pdftotext isn't available, abort.
   if (!file_exists($file_path) || !islandora_paged_content_pdftotext_availability()) {
     return FALSE;
   }
   $pdftotext = variable_get('islandora_paged_content_pdftotext', '/usr/bin/pdftotext');
-  $base_command = '!pdftotext_path !layout -f !offset -l !offset !pdf_uri !output_file';
+  $base_command = '!pdftotext_path !raw !layout -f !offset -l !offset !pdf_uri !output_file';
   $output_file = drupal_tempnam('temporary://', 'full');
 
   // Need to link the file because of UTF-8 encoding.
@@ -933,6 +1105,7 @@ function islandora_paged_content_extract_text_from_pdf($uri, $offset, $layout = 
     '!offset' => $offset,
     '!pdf_uri' => escapeshellarg(drupal_realpath($copy)),
     '!output_file' => drupal_realpath($output_file),
+    '!raw' => $raw_text ? '-raw' : '',
   ));
   $output = array();
   $ret = 0;
