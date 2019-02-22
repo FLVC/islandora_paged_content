@@ -767,7 +767,7 @@ function islandora_paged_content_zipped_upload_form_submit(array $form, array &$
     $source = variable_get('islandora_paged_content_offline_ingest_package_path_source', 'temporary://');
     $target = variable_get('islandora_paged_content_offline_ingest_package_path_target', '');
     $options = variable_get('islandora_paged_content_offline_ingest_options', '');
-    $source = rtrim($source, '/') . '/';
+    if (substr($source,-1) != '/') $source .= '/';
     $target = rtrim($target, '/') . '/';
     $package_directory = '';
     $pid_namespace = islandora_get_namespace($pid);
@@ -792,7 +792,6 @@ function islandora_paged_content_zipped_upload_form_submit(array $form, array &$
       return;
     }
     $package_name = $iid . date("_Ymd_His");
-    //$package_directory = "temporary://offline-ingest-packages/" . $package_name;
     $package_directory = $source . $package_name;
     $rc = file_prepare_directory($package_directory, FILE_CREATE_DIRECTORY);
     if ($rc == false) {
@@ -845,24 +844,25 @@ EOXML;
     if ((strpos($pid_namespace,'dev') === false)&&(strlen($source)>0)&&(strlen($target)>0)&&(strlen($options)>0)) {
       // not on development server - copy files to load server and delete package
       $execout = array();
-      drupal_set_message('execute');
-      drupal_set_message($command);
       exec($command, $execout, $execrc);
-      drupal_set_message('output=' . $output);
-      drupal_set_message('rc=' . $execrc);
       foreach ($execout as $msg) {
         drupal_set_message($msg);
+      }
+      if ($execrc == 0) {
+        $admin_page = 'admin.' . $_SERVER['SERVER_NAME'];
+        drupal_set_message(t('Successfully exported package @package to offline ingest.  You can view the progress of your package at <a href="http://@admin">@admin</a>.', array(
+          '@package' => $package_name,
+          '@admin' => $admin_page,
+        )));
+      }
+      else {
+        drupal_set_message('Unable to copy package to offline ingest.');
       } 
       file_unmanaged_delete_recursive($package_directory);
     }
     else {
-      drupal_set_message($command);
+      drupal_set_message('Unable to complete offline ingest on development server.  You can view or load package from ' . drupal_realpath($package_directory));
     }
-    $admin_page = 'admin.' . $_SERVER['SERVER_NAME'];
-    drupal_set_message(t('Successfully exported package @package to offline ingest.  You can view the progress of your package at <a href="http://@admin">@admin</a>.', array(
-      '@package' => $package_name,
-      '@admin' => $admin_page,
-    )));
     file_unmanaged_delete_recursive($destination_dir);
   }
   else {
