@@ -634,6 +634,7 @@ function islandora_paged_content_zipped_upload_form(array $form, array &$form_st
   $form['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Add files'),
+    '#process' => array('islandora_paged_content_submit_button_process'),
   );
   return $form;
 }
@@ -721,7 +722,9 @@ function islandora_paged_content_zipped_upload_form_submit(array $form, array &$
     );
   }
 
-  if ($add_count > 0) {
+  $offline_ingest_enabled =  variable_get('islandora_paged_content_offline_ingest_enabled', FALSE);
+
+  if (($add_count > 0)&&(($renumber_count > 0)||($offline_ingest_enabled == FALSE))) {
     $batch = array(
       'title' => ucfirst($status_message),
       'progress_message' => t('Completed @current operations out of @total.'),
@@ -758,6 +761,109 @@ function islandora_paged_content_zipped_upload_form_submit(array $form, array &$
     }
 
     batch_set($batch);
+  }
+  else if ($add_count > 0) {
+    global $user;
+    $source = variable_get('islandora_paged_content_offline_ingest_package_path_source', 'temporary://');
+    $target = variable_get('islandora_paged_content_offline_ingest_package_path_target', '');
+    $options = variable_get('islandora_paged_content_offline_ingest_options', '');
+    $source = rtrim($source, '/') . '/';
+    $target = rtrim($target, '/') . '/';
+    $package_directory = '';
+    $pid_namespace = islandora_get_namespace($pid);
+    $model = $form_state['values']['model'];
+    $iid = '';
+    $object = islandora_object_load($pid);
+    if ($object['MODS']) {
+      $mods = $object['MODS']->content;
+      $mods_doc = new DOMDocument();
+      $mods_doc->loadXML($mods);
+      $mods_xpath = new DOMXPath($mods_doc);
+      $mods_xpath->registerNamespace('m', 'http://www.loc.gov/mods/v3');
+      if ($mods_xpath->evaluate('string(//m:mods/m:identifier[@type="IID"]/text())')) {
+        $iid = $mods_xpath->evaluate('string(//m:mods/m:identifier[@type="IID"]/text())');
+      }
+      else if ($mods_xpath->evaluate('string(//m:mods/m:identifier[@type="iid"]/text())')) {
+        $iid = $mods_xpath->evaluate('string(//m:mods/m:identifier[@type="iid"]/text())');
+      }
+    }
+    if (strlen($iid) == 0) {
+      islandora_paged_content_zipped_offline_ingest_error('Unable to determine IID identifier', $destination_dir);
+      return;
+    }
+    $package_name = $iid . date("_Ymd_His");
+    //$package_directory = "temporary://offline-ingest-packages/" . $package_name;
+    $package_directory = $source . $package_name;
+    $rc = file_prepare_directory($package_directory, FILE_CREATE_DIRECTORY);
+    if ($rc == false) {
+      islandora_paged_content_zipped_offline_ingest_error('Unable to create package directory.', $destination_dir);
+      return;
+    }
+    foreach ($files_to_add as $image) {
+      $image_filename = drupal_basename($image);
+      $package_image = $package_directory . '/' . $image_filename;
+      $data = file_get_contents($image);
+      $rc = file_save_data($data, $package_image, FILE_EXISTS_REPLACE);
+      if ($rc == false) {
+        islandora_paged_content_zipped_offline_ingest_error('Unable to copy image file to package directory.', $destination_dir);
+        return;
+      }
+    }
+    $language_map = array(
+      'eng' => 'eng',
+      'fra' => 'fre',
+      'deu' => 'ger',
+      'ita' => 'ita',
+      'no_ocr' => 'eng',
+    );
+  $manifest = <<<EOXML
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest xmlns="info:flvc/manifest/v1">
+    <contentModel>$model</contentModel>
+        <owningUser>$user->name</owningUser>
+    <collection>$pid</collection>
+    <owningInstitution>$pid_namespace</owningInstitution>
+    <languageCode>$language_map[$language]</languageCode>
+</manifest>
+EOXML;
+    $rc = file_save_data($manifest, $package_directory . '/manifest.xml', FILE_EXISTS_REPLACE);
+    if ($rc == false) {
+      islandora_paged_content_zipped_offline_ingest_error('Unable to create manifest file.', $destination_dir);
+      return;
+    }
+
+    //$zipout = new ZipArchive();
+    //$rc = $zipout->open(drupal_realpath($source) . '/' . $iid . '.zip', ZipArchive::CREATE | ZipArchive::OVERWRITE);
+    //$zipout->addEmptyDir($iid);
+    //foreach ($files_to_add as $image) {
+    //  $zipout->addFile($image, $iid . '/' . drupal_basename($image));
+    //}
+    //$rc = $zipout->addFromString($iid . '/manifest.xml', $manifest);
+    //$zipout->close();
+
+    $command = '/usr/bin/scp ' . $options . ' ' . drupal_realpath($package_directory)  . ' ' . $target;
+    if ((strpos($pid_namespace,'dev') === false)&&(strlen($source)>0)&&(strlen($target)>0)&&(strlen($options)>0)) {
+      // not on development server - copy files to load server and delete package
+      $execout = array();
+      drupal_set_message('execute');
+      drupal_set_message($command);
+      exec($command, $execout, $execrc);
+      drupal_set_message('output=' . $output);
+      drupal_set_message('rc=' . $execrc);
+      foreach ($execout as $msg) {
+        drupal_set_message($msg);
+      } 
+      file_unmanaged_delete_recursive($package_directory);
+    }
+    else {
+      drupal_set_message($command);
+    }
+    $admin_page = 'admin.' . $_SERVER['SERVER_NAME'];
+    drupal_set_message(t('Successfully exported package @package to offline ingest.  You can view the progress of your package at <a href="http://@admin">@admin</a>.', array(
+      '@package' => $package_name,
+      '@admin' => $admin_page,
+    )));
+    file_unmanaged_delete_recursive($destination_dir);
   }
   else {
     drupal_set_message(t('No files were found to add in the provided ZIP file.'), 'warning');
@@ -896,4 +1002,51 @@ function islandora_paged_content_manage_page_progression_form_submit($form, &$fo
   $object = islandora_object_load($form_state['pid']);
   islandora_paged_content_set_page_progression($object, $form_state['values']['page_progression']);
   drupal_set_message(t('Page progression updated.'));
+}
+
+/**
+ * Process hook for the submit button, adds the please wait spinning icon.
+ */
+function islandora_paged_content_submit_button_process(array $element) {
+  $settings['spinner'][$element['#id']] = array(
+    'message' => t('Please be patient while the page loads.'),
+    'options' => array(
+      'lines' => 10,
+      'length' => 20,
+      'width' => 10,
+      'radius' => 30,
+      'corners' => 1,
+      'rotate' => 0,
+      'direction' => 1,
+      'color' => '#000',
+      'speed' => 1,
+      'trail' => 60,
+      'shadow' => FALSE,
+      'hwaccel' => FALSE,
+      'className' => 'spinner',
+      'zIndex' => 2000000000,
+      'top' => 'auto',
+      'left' => 'auto',
+    ),
+  );
+  drupal_add_js($settings, 'setting');
+  $islandora_path = drupal_get_path('module', 'islandora');
+  $element['#attached'] = array(
+    'js' => array(
+      "$islandora_path/js/spin/spin.min.js",
+      "$islandora_path/js/spinner.js",
+    ),
+  );
+  $element['#attributes']['class'][] = 'islandora-spinner-submit';
+  return $element;
+}
+
+/**
+ * Offline ingest package export error.
+ *
+ * Deletes the temporary files associated with the ingested pages.
+ */
+function islandora_paged_content_zipped_offline_ingest_error($error_msg, $directory) {
+  file_unmanaged_delete_recursive($directory);
+  drupal_set_message(t($error_msg), 'error');
 }

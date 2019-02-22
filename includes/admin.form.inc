@@ -170,6 +170,48 @@ function islandora_paged_content_admin_settings_form(array $form, array &$form_s
         ),
       ),
     ),
+    'islandora_paged_content_offline_ingest' => array(
+      '#type' => 'fieldset',
+      '#title' => t('Offline Ingest'),
+      'islandora_paged_content_offline_ingest_enabled' => array(
+        '#type' => 'checkbox',
+        '#title' => t('Use offline ingest for loading of zipped pages'),
+        '#default_value' => $get_default_value('islandora_paged_content_offline_ingest_enabled', FALSE),
+      ),
+      'islandora_paged_content_offline_ingest_package_path_source' => array(
+        '#type' => 'textfield',
+        '#title' => t('Path of source directory'),
+        '#description' => t('Enter path of source directory.'),
+        '#default_value' => $get_default_value('islandora_paged_content_offline_ingest_package_path_source', 'temporary://'),
+        '#states' => array(
+          'invisible' => array(
+            ':input[name="islandora_paged_content_offline_ingest_enabled"]' => array('checked' => FALSE),
+          ),
+        ),
+      ),
+      'islandora_paged_content_offline_ingest_package_path_target' => array(
+        '#type' => 'textfield',
+        '#title' => t('Path of target directory'),
+        '#description' => t('Enter path of target directory.'),
+        '#default_value' => $get_default_value('islandora_paged_content_offline_ingest_package_path_target', ''),
+        '#states' => array(
+          'invisible' => array(
+            ':input[name="islandora_paged_content_offline_ingest_enabled"]' => array('checked' => FALSE),
+          ),
+        ),
+      ),
+      'islandora_paged_content_offline_ingest_options' => array(
+        '#type' => 'textfield',
+        '#title' => t('Additional options'),
+        '#description' => t('Enter additional options.'),
+        '#default_value' => $get_default_value('islandora_paged_content_offline_ingest_options', ''),
+        '#states' => array(
+          'invisible' => array(
+            ':input[name="islandora_paged_content_offline_ingest_enabled"]' => array('checked' => FALSE),
+          ),
+        ),
+      ),
+    ),
   );
   return system_settings_form($form);
 }
